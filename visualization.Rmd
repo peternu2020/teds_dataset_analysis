@@ -1,0 +1,442 @@
+---
+title: "TEDS Geo-Spatial Visualization"
+author: "Peter Li"
+date: "6/9/2019"
+output: html_document
+---
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+library(ggstance)
+library(modelr)
+library(janitor)
+library(tidyverse)
+library(dplyr)
+library(plotly)
+library(usmap)
+library(noncensus)
+library(stringr)
+```
+
+"The Treatment Episode Data Set (TEDS) consists of approximately 2.9 million substance abuse treatment records. The dataset is collected and administered by the Center for Behavioral Health Statistics and Quality, Substance Abuse and Mental Health Services Administration (SAMHSA) and also consists of data collected by states in the United States. The dataset consists of both treatment admissions and discharge records collected from 2015-2016. For 2015 the states of Oregon, South Carolina, West Virginia and for 2016 the states of Georgia, Oregon, West Virginia were excluded due to reporting insufficient data." (Peter Li, Stat 301-3).
+
+The interactive geospatial plots below allow the viewer to toggle between the total substance abuse treatment cases per state and cases filtered to specific characteristics. 
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+#saveRDS(tedsd_15_16, "teds_full_15_16v2.rds")
+tedsd_15_16 <- read_rds("teds_full_15_16v2.rds")
+```
+
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+data(counties)
+state_code <- counties %>%
+  select(state_fips, state) %>%
+  mutate(state_fips = as.character(state_fips)) %>%
+  mutate(state_fips = as.integer(state_fips)) %>%
+  mutate(state_fips = as.factor(state_fips)) %>%
+  group_by(state_fips) %>%
+  unique() 
+
+tedsd_15_16_ <- tedsd_15_16 %>% 
+  rename(state_fips = STFIPS) %>%
+  inner_join(state_code, by = "state_fips") 
+
+map <- tedsd_15_16_ %>% #2,875,134. 3,227 observations from PR removed.
+  group_by(state) %>%
+  summarise (n = n())
+
+genders <- tedsd_15_16_ %>%
+  group_by(state, GENDER) %>%
+  filter(GENDER != "NA") %>%
+  summarise (n = n())
+
+genders1 <- str_c(with(genders %>% filter(GENDER == "Female"), paste(state, '<br>', 
+                               "Females", n, '<br>')
+                               ),
+                  with(genders %>% filter(GENDER == "Male"), paste("Males", n)
+                               )
+)
+
+
+vets <- tedsd_15_16_ %>% 
+  mutate(Veteran = 0) %>%
+  mutate(Veteran = if_else(VET == "Veteran", 
+                                Veteran + 1, Veteran + 0)
+  ) %>% 
+  group_by(state, Veteran) %>%
+  summarise (Veteran1 = n()) %>%
+  mutate(Veteran1 = case_when(Veteran != 1 ~ 0,
+                              Veteran == 1 ~ as.double(Veteran1))
+  ) %>%
+  filter(Veteran1 == max(Veteran1)) 
+
+prior_treatment <- tedsd_15_16_ %>%
+  mutate(prior_treat = 0) %>%
+  mutate(prior_treat = if_else(Prior_Treatment == "1+", 
+                                prior_treat + 1, prior_treat + 0)
+  ) %>% 
+  group_by(state, prior_treat) %>%
+  summarise (prior_treat1 = n()) %>%
+  mutate(prior_treat1 = case_when(prior_treat != 1 ~ 0,
+                              prior_treat == 1 ~ as.double(prior_treat1))
+  ) %>%
+  filter(prior_treat1 == max(prior_treat1)) 
+
+psych_problem <- tedsd_15_16_ %>%
+  mutate(psych_problem = 0) %>%
+  mutate(psych_problem = if_else(PSYPROB == "Yes", 
+                                psych_problem + 1, psych_problem + 0)
+  ) %>% 
+  group_by(state, psych_problem) %>%
+  summarise (psych_problem1 = n()) %>%
+  mutate(psych_problem1 = case_when(psych_problem != 1 ~ 0,
+                              psych_problem == 1 ~ as.double(psych_problem1))
+  ) %>%
+  filter(psych_problem1 == max(psych_problem1)) 
+
+cannabis <- tedsd_15_16_ %>%   
+  group_by(state, Cannabis_Use) %>%
+  summarise (n = n())                             
+                   
+cannabis1 <- str_c(with(cannabis %>% filter(Cannabis_Use == "Yes"), paste(state, '<br>', 
+                               "Yes", n, '<br>')
+                               ),
+                  with(cannabis %>% filter(Cannabis_Use == "No"), paste("No", n)
+                               )
+)
+
+ivdrug <- tedsd_15_16_ %>%   
+  group_by(state, IV_Drug_Use) %>%
+  summarise (n = n())                             
+                   
+ivdrug1 <- str_c(with(ivdrug %>% filter(IV_Drug_Use == "Yes"), paste(state, '<br>', 
+                               "Yes", n, '<br>')
+                               ),
+                  with(ivdrug %>% filter(IV_Drug_Use == "No"), paste("No", n)
+                               )
+)
+
+alcohol <- tedsd_15_16_ %>%   
+  group_by(state, Alcohol_Use) %>%
+  summarise (n = n())                             
+                   
+alcohol1 <- str_c(with(alcohol %>% filter(Alcohol_Use == "Yes"), paste(state, '<br>', 
+                               "Yes", n, '<br>')
+                               ),
+                  with(alcohol %>% filter(Alcohol_Use == "No"), paste("No", n)
+                               )
+)
+
+
+cocaine <- tedsd_15_16_ %>%   
+  group_by(state, Cocaine_Use) %>%
+  summarise (n = n())                             
+                   
+cocaine1 <- str_c(with(cocaine %>% filter(Cocaine_Use == "Yes"), paste(state, '<br>', 
+                               "Yes", n, '<br>')
+                               ),
+                  with(cocaine %>% filter(Cocaine_Use == "No"), paste("No", n)
+                               )
+)
+
+opioids <- tedsd_15_16_ %>%   
+  mutate(Opioid_Use = case_when(Opioid_Abuse >= 1 ~ "Yes",
+                                Opioid_Abuse == 0 ~"No")) %>%
+  group_by(state, Opioid_Use) %>%
+  summarise (n = n())                             
+                   
+opioids1 <- str_c(with(opioids %>% filter(Opioid_Use == "Yes"), paste(state, '<br>', 
+                               "Yes", n, '<br>')
+                               ),
+                  with(opioids %>% filter(Opioid_Use == "No"), paste("No", n)
+                               )
+)
+
+
+benzo <- tedsd_15_16_ %>%   
+  group_by(state, Benzo_Use) %>%
+  summarise (n = n()) 
+
+
+benzo1 <- str_c(with(benzo %>% filter(Benzo_Use == "Yes"), paste(state, '<br>', 
+                               "Yes", n, '<br>')
+                               ),
+                  with(benzo %>% filter(Benzo_Use == "No"), paste("No", n)
+                               )
+)
+
+
+
+completed_treatment <- tedsd_15_16_ %>%   
+  filter(Treatment_Status == "Completed") %>%
+  group_by(state, Treatment_Status) %>%
+  summarise (n = n())   
+
+failed_treatment <- tedsd_15_16_ %>%   
+  filter(Treatment_Completed == "Failure") %>%
+  group_by(state, Treatment_Completed) %>%
+  summarise (n = n()) 
+
+treat_status1 <- str_c(with(completed_treatment,
+                              paste(state, '<br>', "Completed", n, '<br>')
+                               ),
+                  with(failed_treatment, paste("Not Completed", n)
+                               )
+)
+
+court_referral <- tedsd_15_16_ %>%   
+  filter(Referral_Source == "Court/Legal_Institution") %>%
+  group_by(state, Referral_Source) %>%
+  summarise (n = n())   
+
+court_referral1 <- str_c(with(court_referral,
+                              paste(state, '<br>', "Court Referral", n, '<br>')
+                               )
+)
+
+#map$hover <- with(map, paste(state, '<br>', "Count", n))
+map$hover <- with(map, paste("Cases"))
+map$hover2 <- genders1
+map$hover3 <- with(vets, paste(state, '<br>', 
+                               "Observations with military veteran status", Veteran1))
+map$hover4 <- with(prior_treatment, paste(state, '<br>', 
+                               "Observations with prior treatment", prior_treat1))
+map$hover5 <- cannabis1
+
+map$hover6 <- ivdrug1
+map$hover7 <- alcohol1
+map$hover8 <- cocaine1
+map$hover9 <- opioids1
+map$hover10 <- benzo1
+map$hover11 <- treat_status1
+map$hover12 <- court_referral1
+
+g <- list(
+  scope = 'usa',
+  projection = list(type = 'albers usa'),
+  showlakes = TRUE,
+  lakecolor = toRGB('white')
+)
+
+```
+
+```{r, fig.width=10, echo = FALSE}
+updatemenus <- list(
+  list(
+    active = -1,
+    type= 'buttons',
+    buttons = list(
+      list(
+        label = "Total Cases",
+        method = "update",
+        args = list(list(z = list(map$n),
+                         text = list (~hover)),
+                     list(title = "Total Cases")
+                         )
+      ),
+      list(
+        label = "Male Cases",
+        method = "update",
+        args = list(list(z = list((genders %>% filter(GENDER == "Male"))$n),
+                         text = list (~hover),
+                         #text = list (~hover2),
+                         colorbar = list(title = "Cases")),
+                    list(title = "Male Cases")
+                    )
+        ),
+      list(
+        label = "Female Cases",
+        method = "update",
+        args = list(list(z = list((genders %>% filter(GENDER == "Female"))$n),
+                         text = list (~hover),
+                         #text = list (~hover2),
+                         colorbar = list(title = "Cases")),
+                    list(title = "Female Cases")
+                    )
+        ),
+      list(
+        label = "Military Veteran Cases",
+        method = "update",
+        args = list(list(z = list(vets$Veteran1),
+                         text = list (~hover),
+                         #text = list (~hover3),
+                         colorbar = list(title = "Cases")),
+                    list(title = "Cases with Military Veterans")
+                    )
+        ),
+      list(
+        label = "Prior Treatment",
+        method = "update",
+        args = list(list(z = list(prior_treatment$prior_treat1),
+                         text = list (~hover),
+                         #text = list (~hover4),
+                         colorbar = list(title = "Cases")),
+                    list(title = "Cases with Prior Substance Abuse Treatment")
+                    )
+        ),
+      list(
+        label = "Psychological Problem(s)",
+        method = "update",
+        args = list(list(z = list(psych_problem$psych_problem1),
+                         text = list (~hover),
+                         colorbar = list(title = "Cases")),
+                    list(title = "Cases with Psychological Problem(s) History")
+                    )
+        )
+    )
+  )
+)
+
+updatemenus2 <- list(
+  list(
+    active = -1,
+    type= 'buttons',
+    buttons = list(
+      list(
+        label = "Cannabis Abuse Cases",
+        method = "update",
+        args = list(list(z = list((cannabis %>% filter(Cannabis_Use == "Yes"))$n),
+                         text = list (~hover),
+                         #text = list (~hover5),
+                         colorbar = list(title = "Cases")),
+                    list(title = "Cannabis Abuse Cases")
+                    )
+        ),
+      list(
+        label = "IV Drug Abuse Cases",
+        method = "update",
+        args = list(list(z = list((ivdrug %>% filter(IV_Drug_Use == "Yes"))$n),
+                         text = list (~hover),
+                         #text = list (~hover6),
+                         colorbar = list(title = "Cases")),
+                    list(title = "IV Drug Abuse Cases")
+                    )
+        ),
+      list(
+        label = "Alcohol Abuse Cases",
+        method = "update",
+        args = list(list(z = list((alcohol %>% filter(Alcohol_Use == "Yes"))$n),
+                         text = list (~hover),
+                         #text = list (~hover7),
+                         colorbar = list(title = "Cases")),
+                    list(title = "Alcohol Abuse Cases")
+                    )
+        ),
+      list(
+        label = "Cocaine Abuse Cases",
+        method = "update",
+        args = list(list(z = list((cocaine %>% filter(Cocaine_Use == "Yes"))$n),
+                         text = list (~hover),
+                         #text = list (~hover8),
+                         colorbar = list(title = "Cases")),
+                    list(title = "Cocaine Abuse Cases")
+                    )
+        ),
+      list(
+        label = "Opioids Abuse Cases",
+        method = "update",
+        args = list(list(z = list((opioids %>% filter(Opioid_Use == "Yes"))$n),
+                         text = list (~hover),
+                         #text = list (~hover9),
+                         colorbar = list(title = "Cases")),
+                    list(title = "Opioids Abuse Cases")
+                    )
+        ),
+      list(
+        label = "Benzodiazepines Abuse Cases",
+        method = "update",
+        args = list(list(z = list((benzo %>% filter(Benzo_Use == "Yes"))$n),
+                         text = list (~hover),
+                         #text = list (~hover10),
+                         colorbar = list(title = "Cases")),
+                    list(title = "Benzodiazepines Abuse Cases")
+                    )
+        ),
+      list(
+        label = "Treatment Completion",
+        method = "update",
+        args = list(list(z = list(completed_treatment$n),
+                         text = list (~hover),
+                         #text = list (~hover11),
+                         colorbar = list(title = "Treatment Completions")),
+                    list(title = "Cases with Treatment Completion")
+                    )
+        ),
+      list(
+        label = "Treatment Failure",
+        method = "update",
+        args = list(list(z = list(failed_treatment$n),
+                         text = list (~hover),
+                         #text = list (~hover11),
+                         colorbar = list(title = "Treatment Failures")),
+                    list(title = "Cases with Treatment Failure")
+                    )
+        ),
+      list(
+        label = "Cases with Court Referral(s)",
+        method = "update",
+        args = list(list(z = list(court_referral$n),
+                         text = list (~hover),
+                         #text = list (~hover12),
+                         colorbar = list(title = "Court Referrals")),
+                    #list(text = list (~hover12)),
+                    list(title = "Cases with Court Referral(s)")
+                    )
+        )#,
+      # list(
+      #   label = "Testing",
+      #   method = "update",
+      #   args = list(#list("colorbar" = list(title = "Court Referrals n")),
+      #               list("z" = list(map_court_referral$n),
+      #                    "colorbar" = list(title = list("Court Referrals"))),
+      # 
+      #               list(title = "Court Referrals")
+      # 
+      #               #list(colorbar = list(title = "Court Referrals"))
+      #               )
+      # 
+      # 
+      #   )
+    )
+  )
+)
+
+plot_geo(map , locationmode = 'USA-states') %>%
+  add_trace(
+    z = ~n, text = ~hover, locations = ~state, #,
+        colorscale = 'Rainbow'
+    ) %>%
+  colorbar(title = "Total cases per state") %>%
+  layout(
+    title = "(Hover for breakdown)",
+    geo = g,
+    updatemenus = updatemenus
+  )
+
+
+plot_geo(map , locationmode = 'USA-states') %>%
+  add_trace(
+    #colorbar = list(title = "Total observations per state"),
+    z = ~n, text = ~hover, colorbar = list(title = "Total cases per state"),
+    locations = ~state,
+     colorscale = 'Rainbow'
+      
+  ) %>%
+  #colorbar(title = "Total observations per state", updatemenus = updatemenus2) %>%
+  layout(
+    title = "(Hover for breakdown)",
+    geo = g,
+    updatemenus = updatemenus2
+  )
+```
+
+https://wwwdasis.samhsa.gov/dasis2/teds.htm
+https://wwwdasis.samhsa.gov/dasis2/teds_pubs/TEDS/Discharges/TED_D_2015/teds_d_2015_codebook.pdf
+https://wwwdasis.samhsa.gov/dasis2/teds_pubs/TEDS/Discharges/TEDS_D_2016/2016_teds_d_codebook.pdf
+
+Substance Abuse and Mental Health Services Administration, Treatment Episode Data Set
+(TEDS): 2015. Rockville, MD: Substance Abuse and Mental Health Services Administration,
+2018. 
+Substance Abuse and Mental Health Services Administration, Treatment Episode Data Set
+(TEDS): 2016. Rockville, MD: Substance Abuse and Mental Health Services Administration,
+2018. 

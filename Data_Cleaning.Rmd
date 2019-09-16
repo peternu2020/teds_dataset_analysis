@@ -1,0 +1,473 @@
+---
+title: "Data_Cleaning"
+author: "Peter Li"
+date: "5/4/2019"
+output: html_document
+---
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+library(janitor)
+library(tidyverse)
+library(dplyr)
+```
+
+```{r, echo = FALSE, eval = FALSE, message = FALSE, warning = FALSE}
+#load(file = "data/tedsa_00_16_puf.Rdata") 
+#load(file = "data/tedsa_15_16_puf.Rdata")
+
+#load(file = "data/teds_d_2006_2014.Rda")
+load(file = "data/tedsd_2015_puf.Rdata")
+load(file = "data/tedsd_2016_puf.Rdata")
+
+#tedsa_00_16_puf_sas
+#teds_d
+
+# tedsa_15_16 <- tedsa_15_16_puf_sas %>% #3,336,851
+#   mutate_if(is.double,as.factor) %>%
+#   select(CASEID, YEAR, AGE, RACE, MARSTAT, EDUC, 
+#          EMPLOY, VET, LIVARAG, ARRESTS, STFIPS, REGION, DIVISION,
+#          SERVICES, METHUSE, PSOURCE, NOPRIOR, SUB1, ROUTE1, 
+#          FREQ1, FRSTUSE1, SUB2, IDU, ALCFLG, COKEFLG, MARFLG,
+#          HERFLG, METHFLG, OPSYNFLG, PCPFLG, MTHAMFLG, BENZFLG, ALCDRUG,
+#          PSYPROB)
+  
+
+tedsd_15 <- tedsd_2015_puf %>%
+  mutate_if(is.double,as.factor) %>%
+  select(CASEID, GENDER, YEAR, AGE, RACE, MARSTAT, EDUC, 
+         EMPLOY, VET, LIVARAG, ARRESTS, STFIPS, REGION, DIVISION,
+         SERVICES, METHUSE, PSOURCE, NOPRIOR, SUB1, ROUTE1, 
+         FREQ1, FRSTUSE1, SUB2, IDU, ALCFLG, COKEFLG, MARFLG,
+         HERFLG, METHFLG, OPSYNFLG, PCPFLG, MTHAMFLG, BENZFLG, ALCDRUG,
+         PSYPROB, LIVARAG_D, ARRESTS_D, SERVICES_D, REASON, LOS, SUB1_D, FREQ1_D, 
+         SUB2_D, NUMSUBS, FREQ_ATND_SELF_HELP, FREQ_ATND_SELF_HELP_D,
+         )
+
+tedsd_16 <- tedsd_2016_puf %>%
+  mutate_if(is.double,as.factor) %>%
+  select(CASEID, GENDER, YEAR, AGE, RACE, MARSTAT, EDUC, 
+         EMPLOY, VET, LIVARAG, ARRESTS, STFIPS, REGION, DIVISION,
+         SERVICES, METHUSE, PSOURCE, NOPRIOR, SUB1, ROUTE1, 
+         FREQ1, FRSTUSE1, SUB2, IDU, ALCFLG, COKEFLG, MARFLG,
+         HERFLG, METHFLG, OPSYNFLG, PCPFLG, MTHAMFLG, BENZFLG, ALCDRUG,
+         PSYPROB, LIVARAG_D, ARRESTS_D, SERVICES_D, REASON, LOS, SUB1_D, FREQ1_D, 
+         SUB2_D, NUMSUBS, FREQ_ATND_SELF_HELP, FREQ_ATND_SELF_HELP_D,
+         )
+
+tedsd_15_16 <- rbind(tedsd_15, tedsd_16) #2,878,361
+
+#saveRDS(tedsd_15_16, "teds_full_15_16v2.rds")
+tedsd_15_16 <- read_rds("teds_full_15_16.rds")
+
+#teds_full_15_16 <- full_join(tedsa_15_16, tedsd_15_16) %>% 
+ # na.omit()
+```
+
+```{r, echo = FALSE}
+tedsd_15_16 <- tedsd_15_16 %>%
+  mutate(LOS = as.numeric(LOS)) %>%
+  mutate(Stay_Duration = case_when(LOS <= 3 ~ "Three_days_or_Less", 
+         (LOS > 3 & LOS <= 7) ~ "One_Week", 
+         (LOS > 7 & LOS <= 14) ~ "Two_Weeks",
+         (LOS > 14 & LOS <= 21) ~ "Three Weeks",
+         (LOS > 21 & LOS <= 30) ~ "One Month", 
+         (LOS == 31) ~ "31-45_Days" ,
+         (LOS == 32) ~ "46-60_Days", 
+         (LOS == 33) ~ "61-90_Days", 
+         (LOS == 34) ~ "91-120_Days", 
+         (LOS == 35) ~ "121-180_Days", 
+         (LOS == 36) ~ "181-365_Days", 
+         (LOS == 37) ~ "One_Year+") 
+  ) %>%
+  mutate(Stay_Duration = as.factor(Stay_Duration))
+
+tedsd_15_16 <- tedsd_15_16 %>% 
+  mutate(Treatment_Status = case_when(REASON == 1 ~ "Completed",
+                                      REASON == 2 ~ "Refused_Treatment",
+                                      REASON == 3 ~ "Non-compliance",
+                                      REASON == 4 ~ "Transfer",
+                                      REASON == 5 ~ "Incarceration",
+                                      REASON == 6 ~ "Death",
+                                      REASON == 7 ~ "Other")
+  ) %>%
+  mutate(Treatment_Status = as.factor(Treatment_Status)) %>%
+  mutate(Treatment_Completed = case_when(REASON == 1 ~ "Completed",
+                                      REASON == 2 ~ "Failure",
+                                      REASON == 3 ~ "Failure",
+                                      REASON == 4 ~ "Ongoing",
+                                      REASON == 5 ~ "Other",
+                                      REASON == 6 ~ "Other",
+                                      REASON == 7 ~ "Other")
+  ) %>%
+  mutate(Treatment_Completed = as.factor(Treatment_Completed)) %>%
+  mutate(Dead = if_else(REASON == 6, "Dead", "Alive")) %>%
+  mutate(Dead = as.factor(Dead)) %>%
+  mutate(Legal_Records = if_else(
+    REASON == 5 | PSOURCE == 7 | ARRESTS == 1 | ARRESTS == 2, "Trouble", "Clean")
+    ) %>% #legal trouble before discharge or preventing treatment / discharge 
+  mutate(Legal_Records = as.factor(Legal_Records)) 
+
+tedsd_15_16 <- tedsd_15_16 %>%
+  mutate(GENDER = case_when(GENDER == 1 ~ "Male",
+                            GENDER == 2 ~ "Female",
+                            GENDER == -9 ~ "NA")
+  ) %>%
+  mutate(GENDER = as.factor(GENDER)) 
+  
+tedsd_15_16 <- tedsd_15_16 %>%
+   mutate(VET = case_when(VET == 1 ~ "Veteran",
+                            VET == 2 ~ "Not_Veteran",
+                            VET == -9 ~ "NA")
+  ) %>%
+  mutate(VET = as.factor(VET)) 
+
+tedsd_15_16 <- tedsd_15_16 %>%
+  mutate(LIVARAG = case_when(LIVARAG == 1 ~ "Homeless",
+                            LIVARAG == 2 ~ "Dependent",
+                            LIVARAG == 3 ~ "Independent",
+                            LIVARAG == -9 ~ "NA")
+  ) %>%
+  mutate(LIVARAG = as.factor(LIVARAG)) %>%
+  mutate(LIVARAG_D = case_when(LIVARAG_D == 1 ~ "Homeless",
+                            LIVARAG_D == 2 ~ "Dependent",
+                            LIVARAG_D == 3 ~ "Independent",
+                            LIVARAG_D == -9 ~ "NA")
+  ) %>%
+  mutate(LIVARAG_D = as.factor(LIVARAG_D)) 
+
+tedsd_15_16 <- tedsd_15_16 %>%
+  mutate(EMPLOY = case_when(EMPLOY == 1 ~ "Full_time",
+                            EMPLOY == 2 ~ "Part_time",
+                            EMPLOY == 3 ~ "Not_employed",
+                            EMPLOY == 4 ~ "Not_employed",
+                            EMPLOY == -9 ~ "NA")
+  ) %>%
+  mutate(EMPLOY = as.factor(EMPLOY)) 
+
+tedsd_15_16 <- tedsd_15_16 %>%
+  mutate(METHUSE = case_when(METHUSE == 1 ~ "Yes",
+                            METHUSE == 2 ~ "No",
+                            METHUSE == -9 ~ "NA")
+  ) %>%
+  mutate(METHUSE = as.factor(METHUSE))  %>%
+  rename(Opioid_Therapy = METHUSE)
+
+tedsd_15_16 <- tedsd_15_16 %>%
+  mutate(ALCFLG = case_when(ALCFLG == 1 ~ "Yes",
+                            ALCFLG == 0 ~ "No")
+  ) %>%
+  mutate(ALCFLG = as.factor(ALCFLG))  %>%
+  rename(Alcohol_Use = ALCFLG)  %>%
+  mutate(COKEFLG = case_when(COKEFLG == 1 ~ "Yes",
+                            COKEFLG == 0 ~ "No")
+  ) %>%
+  mutate(COKEFLG = as.factor(COKEFLG))  %>%
+  rename(Cocaine_Use = COKEFLG) %>%
+  mutate(MARFLG = case_when(MARFLG == 1 ~ "Yes",
+                            MARFLG == 0 ~ "No")
+  ) %>%
+  mutate(MARFLG = as.factor(MARFLG))  %>%
+  rename(Cannabis_Use = MARFLG) %>%
+  mutate(HERFLG = case_when(HERFLG == 1 ~ "Yes",
+                            HERFLG == 0 ~ "No")
+  ) %>%
+  mutate(HERFLG = as.factor(HERFLG))  %>%
+  rename(Heroin_Use = HERFLG) %>%
+  mutate(METHFLG = case_when(METHFLG == 1 ~ "Yes",
+                            METHFLG == 0 ~ "No")
+  ) %>%
+  mutate(METHFLG = as.factor(METHFLG))  %>%
+  rename(Methadone_Use = METHFLG) %>%
+  mutate(OPSYNFLG = case_when(OPSYNFLG == 1 ~ "Yes",
+                            OPSYNFLG == 0 ~ "No")
+  ) %>%
+  mutate(OPSYNFLG = as.factor(OPSYNFLG))  %>%
+  rename(Other_Opiates_Use = OPSYNFLG) %>%
+  mutate(PCPFLG = case_when(PCPFLG == 1 ~ "Yes",
+                            PCPFLG == 0 ~ "No")
+  ) %>%
+  mutate(PCPFLG = as.factor(PCPFLG))  %>%
+  rename(PCP_Use = PCPFLG) %>%
+  mutate(MTHAMFLG = case_when(MTHAMFLG == 1 ~ "Yes",
+                            MTHAMFLG == 0 ~ "No")
+  ) %>%
+  mutate(MTHAMFLG = as.factor(MTHAMFLG))  %>%
+  rename(Methamphetamine_Use = MTHAMFLG) %>%
+  mutate(BENZFLG = case_when(BENZFLG == 1 ~ "Yes",
+                            BENZFLG == 0 ~ "No")
+  ) %>%
+  mutate(BENZFLG = as.factor(BENZFLG))  %>%
+  rename(Benzo_Use = BENZFLG)
+
+tedsd_15_16 <- tedsd_15_16 %>% #Heroin_Use, Methadone_Use, Other_Opiates_Use
+  mutate(Opioid_Abuse = 0) %>%
+  mutate(Opioid_Abuse = if_else(Heroin_Use == "Yes", 
+                                Opioid_Abuse + 1, Opioid_Abuse + 0)
+  ) %>% 
+  mutate(Opioid_Abuse = if_else(Methadone_Use == "Yes", 
+                                Opioid_Abuse + 1, Opioid_Abuse + 0)
+  ) %>%
+  mutate(Opioid_Abuse = if_else(Other_Opiates_Use == "Yes", 
+                                Opioid_Abuse + 1, Opioid_Abuse + 0)
+  )   
+
+tedsd_15_16 <- tedsd_15_16 %>%
+  mutate(ALCDRUG = case_when(ALCDRUG == 0 ~ "None",
+                            ALCDRUG == 1 ~ "Alcohol_only",
+                            ALCDRUG == 2 ~ "Non_alcohol_only",
+                            ALCDRUG == 3 ~ "Both_types")
+  ) %>%
+  mutate(ALCDRUG = as.factor(ALCDRUG))  %>%
+  rename(Substance_type = ALCDRUG)
+
+tedsd_15_16 <- tedsd_15_16 %>%
+  mutate(PSYPROB = case_when(PSYPROB == 1 ~ "Yes",
+                            PSYPROB == 2 ~ "No",
+                            PSYPROB == -9 ~ "NA")
+  ) %>%
+  mutate(PSYPROB = as.factor(PSYPROB))
+
+tedsd_15_16 <- tedsd_15_16 %>% #arrests during treatment period
+  mutate(Arrest_dt = case_when(LOS >= 30 & (ARRESTS_D == 1 | ARRESTS_D == 2) ~ "Yes",
+                            (ARRESTS_D == 1 & ARRESTS == 0) ~ "Yes",
+                            (ARRESTS_D == 2 & ARRESTS == 0) ~ "Yes",
+                            (ARRESTS_D == 2 & ARRESTS == 1) ~ "Yes")
+  ) %>%
+  mutate(Arrest_dt = replace_na(Arrest_dt, "No/Unknown")) %>%
+  mutate(Arrest_dt = as.factor(Arrest_dt))
+
+tedsd_15_16 <- tedsd_15_16 %>%
+  mutate(MARSTAT = case_when(MARSTAT == 1 ~ "Never",
+                            MARSTAT == 2 ~ "Currently",
+                            MARSTAT == 3 ~ "Separated",
+                            MARSTAT == 4 ~ "Divorced/Widowed",
+                            MARSTAT == -9 ~ "NA")
+  ) %>%
+  mutate(MARSTAT = as.factor(MARSTAT)) %>%
+  rename(Marriage = MARSTAT)
+
+tedsd_15_16 <- tedsd_15_16 %>%
+  mutate(Age = case_when((AGE == 1 | AGE == 2) ~ "12-17",
+                         (AGE == 3 | AGE == 4)  ~ "18-24",
+                         (AGE == 5 | AGE == 6) ~ "25-34",
+                         (AGE == 7 | AGE == 8) ~ "35-44",
+                         (AGE == 9 | AGE == 10) ~ "45-54",
+                         AGE == 11 ~ "55-64",
+                         AGE == 12 ~ "65 +")
+  ) %>%
+  mutate(Age = as.factor(Age)) %>%
+  mutate(AGE = case_when(AGE == 1 ~ "12-14",
+                         AGE == 2 ~ "15-17",
+                         AGE == 3 ~ "18-20",
+                         AGE == 4 ~ "21-24",
+                         AGE == 5 ~ "25-29",
+                         AGE == 6 ~ "30-34",
+                         AGE == 7 ~ "35-39",
+                         AGE == 8 ~ "40-44",
+                         AGE == 9 ~ "45-49",
+                         AGE == 10 ~ "50-54",
+                         AGE == 11 ~ "55-64",
+                         AGE == 12 ~ "65 +")
+  ) %>%
+  mutate(AGE = as.factor(AGE)) 
+
+tedsd_15_16 <- tedsd_15_16 %>%
+  mutate(FRSTUSE1 = case_when(FRSTUSE1 == 1 ~ "11-",
+                         FRSTUSE1 == 2 ~ "12-14",     
+                         FRSTUSE1 == 3 ~ "15-17",
+                         FRSTUSE1 == 4 ~ "18-20",
+                         FRSTUSE1 == 5 ~ "21-24",
+                         FRSTUSE1 == 6 ~ "25-29",
+                         FRSTUSE1 == 7 ~ "30+",
+                         FRSTUSE1 == -9 ~ "NA")
+  ) %>%
+  mutate(FRSTUSE1 = as.factor(FRSTUSE1)) %>%
+  rename(Age_First_Use = FRSTUSE1)
+
+tedsd_15_16 <- tedsd_15_16  %>%
+  mutate(FREQ1 = case_when(FREQ1 == 1 ~ "None",
+                         FREQ1 == 2 ~ "Some",     
+                         FREQ1 == 3 ~ "Daily",
+                         FREQ1 == -9 ~ "NA")
+  ) %>%
+  mutate(FREQ1 = as.factor(FREQ1)) %>%
+  rename(Primary_Sub_Frequency = FREQ1) %>%
+  mutate(FREQ1_D = case_when(FREQ1_D == 1 ~ "None",
+                         FREQ1_D == 2 ~ "Some",     
+                         FREQ1_D == 3 ~ "Daily",
+                         FREQ1_D == -9 ~ "NA")
+  ) %>%
+  mutate(FREQ1_D = as.factor(FREQ1_D)) %>%
+  rename(Primary_Sub_Frequency_D = FREQ1_D) 
+
+tedsd_15_16 <- tedsd_15_16 %>%
+  mutate(Race = case_when((RACE == 1 | RACE == 2 
+                           | RACE == 3 | RACE == 9) ~ "Native/Pacific/Indian",
+                         (RACE == 5) ~ "Caucasian",
+                         (RACE == 4) ~ "Black/AA",
+                         (RACE == 6) ~ "Asian",
+                         (RACE == 7 | RACE == 8) ~ "Other",
+                         RACE == -9 ~ "NA")
+  ) %>%
+  mutate(Race = as.factor(Race)) %>%
+  mutate(RACE = case_when(RACE == 1 ~ "Alaska_Native ",
+                         RACE == 2 ~ "American_Indian",
+                         RACE == 3 ~ "Asian/Pacific_Islander",
+                         RACE == 4 ~ "Black/African_American",
+                         RACE == 5 ~ "White",
+                         RACE == 6 ~ "Asian",
+                         RACE == 7 ~ "Other_Single_Race",
+                         RACE == 8 ~ "Mixed_Race",
+                         RACE == 9 ~ "Native_Hawaiian/Other_Pacific",
+                         RACE == -9 ~ "NA")
+  ) %>%
+  mutate(RACE = as.factor(RACE)) 
+
+tedsd_15_16 <- tedsd_15_16 %>%
+  mutate(REGION = case_when(REGION == 0 ~ "US_Territory",
+                         REGION == 1 ~ "Northeast",
+                         REGION == 2 ~ "Midwest",
+                         REGION == 3 ~ "South",
+                         REGION == 4 ~ "West")
+  ) %>%
+  mutate(REGION = as.factor(REGION)) %>%
+  mutate(DIVISION = case_when(DIVISION == 0 ~ "US_Territory",
+                         DIVISION == 1 ~ "New_England",
+                         DIVISION == 2 ~ "Mid_Atlantic",
+                         DIVISION == 3 ~ "East_North_Central",
+                         DIVISION == 4 ~ "West_North_Central",
+                         DIVISION == 5 ~ "South_Atlantic",
+                         DIVISION == 6 ~ "East_South_Central",
+                         DIVISION == 7 ~ "West_South_Central",
+                         DIVISION == 8 ~ "Mountain",
+                         DIVISION == 9 ~ "Pacific")
+  ) %>%
+  mutate(DIVISION = as.factor(DIVISION))
+ 
+tedsd_15_16 <- tedsd_15_16 %>%
+  mutate(PSOURCE = case_when(PSOURCE == 1 ~ "Individual/Personal",
+                         PSOURCE == 2 ~ "Substance_Treatment_Provider",
+                         PSOURCE == 3 ~ "Health_Care_Provider",
+                         PSOURCE == 4 ~ "Educational_Institution",
+                         PSOURCE == 5 ~ "Employer",
+                         PSOURCE == 6 ~ "Other_Organization/Community_Group",
+                         PSOURCE == 7 ~ "Court/Legal_Institution",
+                         PSOURCE == -9 ~ "NA")
+  ) %>%
+  mutate(PSOURCE = as.factor(PSOURCE)) %>%
+  rename(Referral_Source = PSOURCE)
+
+tedsd_15_16 <- tedsd_15_16 %>%
+  mutate(FREQ_ATND_SELF_HELP = case_when(FREQ_ATND_SELF_HELP == 1 ~ "0",
+                            FREQ_ATND_SELF_HELP == 2 ~ "1-3",
+                            FREQ_ATND_SELF_HELP == 3 ~ "4-7",
+                            FREQ_ATND_SELF_HELP == 4 ~ "8-30",
+                            FREQ_ATND_SELF_HELP == 5 ~ "Some/Inexact",
+                            FREQ_ATND_SELF_HELP == -9 ~ "NA")
+  ) %>%
+  mutate(FREQ_ATND_SELF_HELP = as.factor(FREQ_ATND_SELF_HELP)) %>%
+  mutate(FREQ_ATND_SELF_HELP_D = case_when(FREQ_ATND_SELF_HELP_D == 1 ~ "0",
+                            FREQ_ATND_SELF_HELP_D == 2 ~ "1-3",
+                            FREQ_ATND_SELF_HELP_D == 3 ~ "4-7",
+                            FREQ_ATND_SELF_HELP_D == 4 ~ "8-30",
+                            FREQ_ATND_SELF_HELP_D == 5 ~ "Some/Inexact",
+                            FREQ_ATND_SELF_HELP_D == -9 ~ "NA")
+  ) %>%
+  mutate(FREQ_ATND_SELF_HELP_D = as.factor(FREQ_ATND_SELF_HELP_D))
+
+tedsd_15_16 <- tedsd_15_16 %>%
+  mutate(SUB1 = case_when(SUB1 == 1 ~ "None",
+                            SUB1 == 2 ~ "Alcohol",
+                            SUB1 == 3 ~ "Cocaine",
+                            SUB1 == 4 ~ "Cannabis",
+                            (SUB1 == 5 | SUB1 == 6 | SUB1 == 7)
+                             ~ "Opiates",
+                            (SUB1 == 8 | SUB1 == 9) ~
+                            "Hallucinogens",
+                            SUB1 == 10 ~ "Methamphetamine",
+                            SUB1 == 13 ~ "Benzodiazepines",
+                            (SUB1 == 11 | SUB1 == 12 | SUB1 == 14 
+                             | SUB1 == 15 | SUB1 == 16 | SUB1 == 17 
+                             | SUB1 == 18 | SUB1 == 19)
+                              ~ "Other",
+                            SUB1 == -9 ~ "NA")
+  ) %>%
+  mutate(SUB1 = as.factor(SUB1)) %>%
+  rename(Primary_Substance = SUB1) %>%
+  mutate(SUB1_D = case_when(SUB1_D == 1 ~ "None",
+                            SUB1_D == 2 ~ "Alcohol",
+                            SUB1_D == 3 ~ "Cocaine",
+                            SUB1_D == 4 ~ "Cannabis",
+                            (SUB1_D == 5 | SUB1_D == 6 | SUB1_D == 7)
+                             ~ "Opiates",
+                            (SUB1_D == 8 | SUB1_D == 9) ~
+                            "Hallucinogens",
+                            SUB1_D == 10 ~ "Methamphetamine",
+                            SUB1_D == 13 ~ "Benzodiazepines",
+                            (SUB1_D == 11 | SUB1_D == 12 | SUB1_D == 14 
+                             | SUB1_D == 15 | SUB1_D == 16 | SUB1_D == 17 
+                             | SUB1_D == 18 | SUB1_D == 19)
+                              ~ "Other",
+                            SUB1_D == -9 ~ "NA")
+  ) %>%
+  mutate(SUB1_D = as.factor(SUB1_D)) %>%
+  rename(Primary_Substance_D = SUB1_D) %>%
+  mutate(SUB2 = case_when(SUB2 == 1 ~ "None",
+                            SUB2 == 2 ~ "Alcohol",
+                            SUB2 == 3 ~ "Cocaine",
+                            SUB2 == 4 ~ "Cannabis",
+                            (SUB2 == 5 | SUB2 == 6 | SUB2 == 7)
+                             ~ "Opiates",
+                            (SUB2 == 8 | SUB2 == 9) ~
+                            "Hallucinogens",
+                            SUB2 == 10 ~ "Methamphetamine",
+                            SUB2 == 13 ~ "Benzodiazepines",
+                            (SUB2 == 11 | SUB2 == 12 | SUB2 == 14 
+                             | SUB2 == 15 | SUB2 == 16 | SUB2 == 17 
+                             | SUB2 == 18 | SUB2 == 19)
+                              ~ "Other",
+                            SUB2 == -9 ~ "NA")
+  ) %>%
+  mutate(SUB2 = as.factor(SUB2)) %>%
+  rename(Secondary_Substance = SUB2) %>%
+  mutate(SUB2_D = case_when(SUB2_D == 1 ~ "None",
+                            SUB2_D == 2 ~ "Alcohol",
+                            SUB2_D == 3 ~ "Cocaine",
+                            SUB2_D == 4 ~ "Cannabis",
+                            (SUB2_D == 5 | SUB2_D == 6 | SUB2_D == 7)
+                             ~ "Opiates",
+                            (SUB2_D == 8 | SUB2_D == 9) ~
+                            "Hallucinogens",
+                            SUB2_D == 10 ~ "Methamphetamine",
+                            SUB2_D == 13 ~ "Benzodiazepines",
+                            (SUB2_D == 11 | SUB2_D == 12 | SUB2_D == 14 
+                             | SUB2_D == 15 | SUB2_D == 16 | SUB2_D == 17 
+                             | SUB2_D == 18 | SUB2_D == 19)
+                              ~ "Other",
+                            SUB2_D == -9 ~ "NA")
+  ) %>%
+  mutate(SUB2_D = as.factor(SUB2_D)) %>%
+  rename(Secondary_Substance_D = SUB2_D)
+
+tedsd_15_16 <- tedsd_15_16 %>%
+  mutate(ROUTE1 = case_when(ROUTE1 == 1 ~ "Oral",
+                            ROUTE1 == 2 ~ "Smoking",
+                            ROUTE1 == 3 ~ "Inhalation",
+                            ROUTE1 == 4 ~ "Injection",
+                            ROUTE1 == 5 ~ "Other",
+                            ROUTE1 == -9 ~ "NA")) %>%
+           mutate(ROUTE1 = as.factor(ROUTE1)) %>%
+   mutate(IDU = case_when(IDU == 0 ~ "No",
+                          IDU == 1 ~ "Yes",
+                          IDU == -9 ~ "NA")) %>%
+  mutate(IDU = as.factor(IDU)) %>%
+  rename(IV_Drug_Use = IDU)
+
+tedsd_15_16 <- tedsd_15_16 %>%
+  mutate(NOPRIOR = case_when(NOPRIOR == 0 ~ "0",
+                             NOPRIOR == 1 ~ "1+",
+                             NOPRIOR == -9 ~ "NA")) %>%
+           mutate(NOPRIOR = as.factor(NOPRIOR)) %>%
+  rename(Prior_Treatment = NOPRIOR)
+```
+

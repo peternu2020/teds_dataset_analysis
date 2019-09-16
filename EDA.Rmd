@@ -1,0 +1,510 @@
+---
+title: "EDA"
+author: "Peter Li"
+date: "5/2/2019"
+output: html_document
+---
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+library(ggstance)
+library(modelr)
+library(janitor)
+library(tidyverse)
+library(dplyr)
+library(plotly)
+library(usmap)
+library(noncensus)
+library(stringr)
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+#saveRDS(tedsd_15_16, "teds_full_15_16v2.rds")
+tedsd_15_16 <- read_rds("teds_full_15_16v2.rds")
+```
+
+The dataset consists of approximately 2.9 million observations from the Treatment Episode Data Set (TEDS) substance abuse treatment records. The dataset is collected and administered by the Center for Behavioral Health Statistics and Quality, Substance Abuse and Mental Health Services Administration (SAMHSA) and also consists of data collected by states in the United States. The dataset consists of both treatment admissions and discharge records collected from 2015-2016. 
+
+There are already quick statistics and some preliminary analysis available for the dataset in the TEDS codebooks. These help provide a superficial overview of the data. For example, one can learn that the majority race for the observations is Caucasian from a glance at the codebook. The codebook also notes that for 2015 the states of Oregon, South Carolina, West Virginia and for 2016 the states of Georgia, Oregon, West Virginia were excluded due to reporting insufficient data. However, these quick summary statistics do not show if there are any response variables in the dataset that can be modeled by other variables as predictors. The original dataset did not have any labeled response variables or any specific variables that were emphasized over the others. Some variables that seem appropriate for this dataset include predicting the type of treatment, treatment duration, and treatment results from factors such as patient demographics and the types and amounts of substance(s) abused. Therefore, my exploratory data analysis examined the data more closely with the goal of finding and intrepreting patterns among the wide range of variables in the dataset. The original dataset consisted of 78 variables, however, variables generally containing 25% or more missing or "NA" values were excluded from further analysis. Through the data cleaning process, I also modified existing variables or created new variables to correct for untidy or unclear data. 
+
+With the widespread opioid epidemic in the recent years, I expected opioids to have the most cases of substance abuse in the dataset. However, opioids was surprisingly only the second most widely abused substance in the dataset and narrowly lost first place to alcohol. My EDA also found that the majority of alcohol abuse treatment cases were for minors. This is obviously not surprising, but it is a fact that would not have been discovered without diving beyond the summary statistics of the codebooks. 
+
+The main response variables are the treatment results at discharge such as whether the treatment is completed or not and any reduction in an individual's substance use. It may also be possible to predict the stay duration or the specific treatment services given to an individual, however, these variables seem to be too variable to case-by-case bases to be able to be predicted accurately. The primary potential predictors are factors such as previous admission, current drug use (type(s) and frequency/amount), referral source, past psychiatric and criminal history, financial background (housing, employment). The age and gender variables might also be good predictors, but the distributions in the sample are skewed. Individual's involment with self-help groups may also be an indicator of the treatment success/duration. 
+
+While building a predictive model may be challenging due to the large variation in substance abuse and treament cases, building an inferential model may also be insightful. There could be certain motivational and risk factors that lead to admissions, cause failure in treatment, or are associated with prolonged treatments. 
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+tedsd_15_16 %>%
+  filter(Primary_Substance == "None" & Primary_Substance_D != "None") %>%
+  select(Primary_Substance, Primary_Substance_D, Referral_Source) %>%
+  group_by(Referral_Source) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+#13,106 observations with discrepancies of reported no substance issue at admission but at discharge having a substance issue. 
+```
+
+Notably, there are 13,106 observations with discrepancies of reported no substance issue at admission but at discharge having a substance issue.
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+tedsd_15_16 %>%
+  filter(Primary_Substance == "None" & Primary_Substance_D == "None") %>%
+  select(Primary_Substance, Primary_Substance_D, Referral_Source) %>%
+  group_by(Referral_Source) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+#10,666 observations with no reported substance issue at admission and at discharge having no reported substance issue. Could potentially be past clients being readmitted or being re-evaluated or false positives that were referred. 
+
+#Further analysis of the observations with no reported substance issue at admissions shows that the majority of their referral was from court/legal institution referrals. 
+```
+
+Another notable discovery: there are 10,666 observations with no reported substance issue at admission and at discharge having no reported substance issue. This could potentially be past clients being readmitted / re-evaluated or false positives that were referred. 
+
+Further analysis of the observations with no reported substance issue at admissions shows that the majority of these observations' referrals was from court/legal institution referrals. 
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+tedsd_15_16 %>%
+  filter(Treatment_Status == "Incarceration" & 
+           ARRESTS == 0 & ARRESTS_D == 0) %>% 
+  group_by(Stay_Duration) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+#22,798 observations of incarcerations with no arrests within 30 day period prior to admission and no arrests within 30 day period prior to discharge. This is very likely the case where clients are directly being transferred or remanded to incarceration after the treatment program for crime(s) committed more than 30 days prior to admission. However, it is also a possiblity for stay durations of more than 30 days that a client is arrested and there is no record of that in the dataset. So there may also be cases where clients at discharge are being transferred or remanded to incarceration for crimes committed during the treatment period after admission but before 30 days prior to discharge. 
+```
+
+There are 22,798 incarcerated observationswith no arrests within the 30 day period prior to admission and no arrests within the 30 day period prior to discharge. This could very likely be the case where clients are directly being transferred or remanded to incarceration after the treatment program for crime(s) committed more than 30 days prior to admission. However, it is also a possiblity for stay durations of more than 30 days that a client is arrested and there is no record of that in the dataset. So there may also be cases where clients at discharge are being transferred or remanded to incarceration for crimes committed during the treatment period after admission but before 30 days prior to discharge. 
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+tedsd_15_16 %>%
+  filter(Treatment_Status == "Incarceration" & ARRESTS == 0 & 
+           (ARRESTS_D == 1 | ARRESTS_D == 2)) %>% 
+  group_by(Stay_Duration) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+#19,892 observations of incarcerations with arrests within 30 day period prior to discharge but no arrest within 30 days prior to admission. In these cases, it is possible that the clients are either arrested and incarcerated for crimes committed after admission or arrested and incarcerated for previous crimes committed more than 30 days prior to admission. However, for the latter possibility it would be peculiar for cases where the client is arrested more than once.  
+ 
+```
+
+There are 19,892 incarcerated observations with arrests within the 30 day period prior to discharge but no arrest within the 30 days prior to admission. In these cases, it is possible that the clients are either arrested and incarcerated for crimes committed after admission or arrested and incarcerated for previous crimes committed more than 30 days prior to admission. However, for the latter possibility it would be peculiar for cases where the client is arrested more than once. 
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+tedsd_15_16 %>%
+  filter(Treatment_Status == "Incarceration" & ARRESTS_D == 0 & 
+           (ARRESTS == 1 | ARRESTS == 2)) %>% 
+  group_by(Stay_Duration) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+#1,851 observations of incarcerations with arrests within 30 day period prior to admission but no arrest within 30 days prior to discharge. In these cases, it is a possibility that the clients at discharge are being transferred or remanded to incarceration after the treatment program.
+```
+
+There are 1,851 incarcerated observations with arrests within the 30 day period prior to admission but no arrest within the 30 days prior to discharge. In these cases, it is a possibility that the clients at discharge are being transferred or remanded to incarceration after the treatment program.
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+tedsd_15_16 %>%
+  filter(Opioid_Abuse >= 1) %>%
+  group_by(Opioid_Therapy) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+#1,138,536 observations with opioid substance issues (either heroin, non-prescription methadone, or other opioids). Only 272,292 were given methadone opioid therapy.
+```
+
+There are 1,138,536 observations with opioid substance issues (either heroin, non-prescription methadone, or other opioids). Only 272,292 out of those observations were given methadone opioid therapy.
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+tedsd_15_16 %>%
+  filter(Opioid_Abuse == 0) %>%
+  group_by(Opioid_Therapy) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+#14,320 observations given methadone opioid therapy out of 1,739,825 observations with supposedly no reported opiate issues. 
+```
+
+Interestingly, 14,320 observations were given methadone opioid therapy out of 1,739,825 observations with supposedly no reported opiate issues at treatment admission. 
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+tedsd_15_16 %>%
+  mutate(Opioid_Abuse = as.factor(Opioid_Abuse)) %>%
+  group_by(Opioid_Abuse, Opioid_Therapy) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+# Seems to be a positive association between the number of opioid substance types a client is abusing and whether or not methadone therapy is given.  
+```
+
+Analyzing the data further, there seems to be a positive association between the number of opioid substance types a client is abusing and whether or not methadone therapy is given. Some states may also have specific policies regarding methadone prescriptions. 
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+tedsd_15_16 %>% 
+  filter(IV_Drug_Use == "Yes") %>%
+  group_by(Primary_Substance) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+# Within observations with IV drug abuse the observations with opiates, methamphetamine, and alcohol as the reported primary substance abuse type have the highest proportions.
+```
+
+Within observations with reported IV drug abuse the observations with opiates, methamphetamine, or alcohol as the reported primary substance abuse type have the highest proportions.
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+tedsd_15_16 %>% 
+  filter(IV_Drug_Use == "Yes") %>%
+  mutate(Opioid_Abuse = if_else(Opioid_Abuse >= 1, "Yes", "No")) %>%
+  group_by(Opioid_Abuse, Methamphetamine_Use, Cocaine_Use)  %>%
+  summarise (n = n()) 
+#The above analysis shows that the amount of observations with IV drug abuse not attributable to opioids, methamphetamines, and/or cocaine is only 5406 out of 712,017.
+```
+
+The above analysis shows that the amount of observations with IV drug abuse not attributable to opioids, methamphetamines, and/or cocaine is only 5406 out of 712,017.
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+tedsd_15_16 %>% 
+  filter(Dead == "Dead") %>%
+  group_by(Primary_Substance) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+#Among the 6,876 dead observations, the most common primary substances abused were opiates and alcohol.
+```
+
+As previously mentioned, opiates are currently involved in a deadly drug epidemic. However, other substances examined by the data such as cocaine, alcohol, methamphetamines, and benzodiazepines are also generally known to be deadly drugs if overdosed. Analyzing the 6,876 dead observations, the most common primary substances abused were opiates and alcohol.
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+tedsd_15_16 %>% 
+  filter(Treatment_Status == "Incarceration") %>%
+  group_by(Primary_Substance) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+#Among the 59,520 incarcerated observations, the most common primary substances abused were opiates, cannabis, alcohol, and methamphetamine.
+```
+
+Among the 59,520 incarcerated observations, the most common primary substances abused were opiates, cannabis, alcohol, and methamphetamine.
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+tedsd_15_16 %>% 
+  filter(Treatment_Completed == "Completed") %>%
+  group_by(Primary_Substance) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+#Among the 1,246,861 observations with completed treatment, the most common primary substances abused were alcohol, opiates, cannabis, methamphetamine, and cocaine.
+```
+
+Among the 1,246,861 observations that completed treatment, the most common primary substances abused were alcohol, opiates, cannabis, methamphetamine, and cocaine. 
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+tedsd_15_16 %>% 
+  filter(Treatment_Completed == "Failure") %>%
+  group_by(Primary_Substance) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+#However, the 985,394 observations with refused or terminated treatment also had similar trends in the most common primary substances abused. 
+```
+
+The 985,394 observations that refused or had treatment terminated for non-compliance also had similar trends in the types of primary substances most commonly abused. This suggests that  predicting whether someone completes or does not complete treatment based on the substance he or she is abusing may not be very accurate.
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+tedsd_15_16 %>% 
+  filter(PSYPROB == "Yes") %>%
+  group_by(Primary_Substance) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+#Among the 943,038 observations with reported psychiatric problems, the most common primary substances abused were opiates, alcohol, cannabis, methamphetamine, and cocaine.
+```
+
+Among the 943,038 observations with reported psychiatric problems, the most common primary substances abused were opiates, alcohol, cannabis, methamphetamine, and cocaine. 
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+tedsd_15_16 %>% 
+  filter(VET == "Veteran") %>%
+  group_by(Primary_Substance) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+#Among the 77,786 veteran observations with reported psychiatric problems, the most common primary substances abused were alcohol, opiates, methamphetamine, cannabis, and cocaine.
+```
+
+Among the 77,786 observations that were military veterans with reported psychiatric problems, the most common primary substances abused were alcohol, opiates, methamphetamine, cannabis, and cocaine.
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+tedsd_15_16 %>% 
+  filter(Prior_Treatment == "Yes") %>%
+  group_by(Primary_Substance) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+# Similar primary substance type trend among observations that previously underwent treatment.
+```
+
+There is a similar primary substance type trend among observations that previously underwent treatment. Thus, it seems that even among specific groups of the dataset population the primary substances most commonly abused are not very different than those of the majority of the dataset.
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+tedsd_15_16 %>% 
+  filter(GENDER == "Male") %>%
+  group_by(Primary_Substance) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+
+tedsd_15_16 %>% 
+  filter(GENDER == "Female") %>%
+  group_by(Primary_Substance) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+# The trends across genders for the most common primary substance types are similar, however, male observations have higher alcohol proportions and slightly higher cannabis proportions than female observations. Female observations had slightly higher opiates and cocaine proportions along with higher methamphetamine proportions. 
+```
+
+The trends across genders for the most common primary substance types are similar, however, male observations have higher alcohol proportions and slightly higher cannabis proportions than female observations. Female observations have slightly higher opiates and cocaine proportions along with higher methamphetamine proportions. 
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+tedsd_15_16 %>% 
+  filter(Referral_Source == "Individual/Personal") %>%
+  group_by(Primary_Substance) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+
+tedsd_15_16 %>% 
+  filter(Referral_Source == "Court/Legal_Institution") %>%
+  group_by(Primary_Substance) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+#Observations that were referred from court/legal institutions had significantly higher proportions of cannabis and methamphetamine as the primary substance type than observations that were self or personal referrals. Observations that were self or personal referrals had higher had significantly higher proportions of opiates as the primary substance type than observations that were referred from court/legal institutions.
+```
+
+Observations that were referred from court/legal institutions had significantly higher proportions of cannabis and methamphetamine as the primary substance type than observations that were self or personal referrals. Observations that were self or personal referrals had  significantly higher proportions of opiates as the primary substance type than observations that were referred from court/legal institutions.
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+tedsd_15_16 %>% 
+  filter(Referral_Source == "Individual/Personal") %>%
+  group_by(Treatment_Status) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+
+tedsd_15_16 %>% 
+  filter(Referral_Source == "Court/Legal_Institution") %>%
+  group_by(Treatment_Status) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+
+tedsd_15_16 %>% 
+  filter(Referral_Source == "Individual/Personal") %>%
+  group_by(Stay_Duration) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+
+tedsd_15_16 %>% 
+  filter(Referral_Source == "Court/Legal_Institution") %>%
+  group_by(Stay_Duration) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+```
+
+Further, comparing observations with court referrals vs self/personal referrals there are no significant differences in treatment completion between the two groups. There are slightly higher rates of observations with treatment refusal and terminated treatment due to non-compliance among the observations with court referrals. This would seem to suggest that observations that were compelled to attend treatment by court referral were more likely to refuse or resist treatment. However, the proportion of observations that completed treatment were slightly higher in the group with court referrals than in the group with self/personal referrals.
+
+For stay durations, the observations with court referrals had higher proportions of stay durations 46 days and longer than the observations with self/personal referrals. The observations with self/personal referrals had higher proportions of stay durations of two weeks and shorter than the observations with court referrals. The longer stay durations for the observations with court referrals may be due to stipulations ordered by the court/legal institutions that made the referrals. Thus, it may be possible to predict stay durations of observations based on their referral source.
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+tedsd_15_16 %>% 
+  group_by(Primary_Substance, Stay_Duration) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+
+tedsd_15_16 %>% 
+  filter(Treatment_Completed == "Completed") %>%
+  group_by(Stay_Duration) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+  
+tedsd_15_16 %>% 
+  filter(Treatment_Completed == "Failure") %>%
+  group_by(Stay_Duration) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+
+```
+
+There seems to be no significant differences in the stay durations of the observations that completed treatment and those who refused treatment or had treatment terminated due to non-compliance. The observations with alcohol, benzodiazepines, or opiates as the primary substance abused have higher proportions of stay durations of one week or shorter than the other stay durations in each of their categories. Observations with cannabis as the primary substance abused have higher proportions of stay durations of 91 days and longer than the other stay durations in its category. Thus, it may be possible to predict an observation's stay duration based on the primary substanced abused.
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+tedsd_15_16 %>% 
+  group_by(Primary_Sub_Frequency_D, Stay_Duration) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+
+tedsd_15_16 %>% 
+  filter((Primary_Sub_Frequency == "Daily" & Primary_Sub_Frequency_D == "None") |
+          (Primary_Sub_Frequency == "Daily" & Primary_Sub_Frequency_D == "Some") |
+          (Primary_Sub_Frequency == "Some" & Primary_Sub_Frequency_D == "None")) %>%
+  group_by(Primary_Sub_Frequency, Primary_Sub_Frequency_D, Stay_Duration) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+```
+
+It would be naive to expect a positive linear relationship between stay duration and lower substance use at discharge. However, it also is doubtful that successful treatment from substance abuse and addiction can occur overnight. The analysis shows that longer stay durations have no significant correlation with lower substance usage frequencies at the end of treatment. Among observations with reduced usage frequency of the primary substance abused, the stay duration s with the highest proportions are between one week to one month. Stay durations greatly vary on a individual case-by-case basis so it is unlikely that it is a strong predictor of treatment success.
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+tedsd_15_16 %>% 
+  group_by(Age_First_Use, Primary_Sub_Frequency) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+
+tedsd_15_16 %>% 
+  group_by(Age_First_Use, Primary_Substance) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+#One trend is the ...the age of first use of primary substance
+```
+
+As observations' age of first use of the primary substance abused increases from 18 to older ages the proportion of primary substance use frequency increases. It can be theorized that getting illicit substances is easier as an adult than a minor. Another noticeable trend is that observatons with the age of first use being younger than 21 or minors have significantly higher proportions of alcohol or cannabis as the primary substance abused. Observations with older ages of first use have significantly higher proportions of opiates as the primary substance abused. It can be deduced that the illegal alcohol consumption and abuse by minors is scrutinized more than alcohol consumption by those who are of legal age. In some states with cannabis legalization, minor consumption of cannabis is also illegal. However, it is not surprising that opiates also have higher proportions in adults. Obtaining opiates illicitly would generally be challenging for minors. Another notable aspect of the opiate epidemic is the role of opiate prescriptions. It is unlikely that minors are commonly prescribed opiates. Thus, the primary substance abused and the frequency of usage seem correlated with age of first use. However, none of these variables are response variables or would fit as response variables. These variables are what are observed, collected, or reported from individuals when they are admitted and not something to generally be predicted. It may be possible to do clustering with these variables, however, that would not be of utmost important to a predictive model.  
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+tedsd_15_16 %>% 
+  filter(Alcohol_Use == "Yes") %>%
+  group_by(SERVICES) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+
+tedsd_15_16 %>% 
+  filter(Cannabis_Use == "Yes") %>%
+  group_by(SERVICES) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+
+tedsd_15_16 %>% 
+  filter(Opioid_Abuse >= 1) %>%
+  group_by(SERVICES) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+
+tedsd_15_16 %>% 
+  filter(Methamphetamine_Use == "Yes") %>%
+  group_by(SERVICES) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+```
+
+The treatment type given to an observation seems to vary depending on the primary substance abuse type. Thus, it seems possible to predict an observation's treatment type based on the primary substance abused.
+
+```{r}
+tedsd_15_16 %>%
+  filter(Treatment_Status == "Completed") %>%
+  group_by(Primary_Sub_Frequency_D) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+
+tedsd_15_16 %>%
+  filter(Treatment_Completed == "Failure") %>%
+  group_by(Primary_Sub_Frequency_D) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+```
+
+The reported primary substance usage frequency at discharge is significantly lower among the group of observations that completed treatment than the group of observations that did not complete treatment. This is obviously expected. Both variables seem to be suitable as response variables, but another issue is whether one can be used for predicting the other. An individual completing treatment is no guarantee of reduced substance use, but it is generally expected that completed and successful treatment entails sobriety. 
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+tedsd_15_16 %>%
+  filter(Treatment_Status == "Incarceration") %>%
+  group_by(Primary_Sub_Frequency_D) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+
+tedsd_15_16 %>%
+  filter(ARRESTS_D == 1 | ARRESTS_D == 2) %>%
+  group_by(Primary_Sub_Frequency_D) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+
+tedsd_15_16 %>%
+  filter(ARRESTS == 0) %>%
+  group_by(Treatment_Status) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+
+tedsd_15_16 %>%
+  filter(ARRESTS == 1 | ARRESTS == 2) %>%
+  group_by(Treatment_Status) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+```
+
+There seems to be no difference in the treatment success of those who were arrested and those who were not arrested before admission. The former have a slightly higher proportion of incarceration before treatment is completed, but it is also possible the incarceration was related to the arrest before admission. Checking further:
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+tedsd_15_16 %>%
+  filter(ARRESTS == 1 | ARRESTS == 2) %>%
+  filter(Arrest_dt != "Yes") %>%
+  group_by(Treatment_Status) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+  
+tedsd_15_16 %>%
+  filter(ARRESTS == 1 | ARRESTS == 2) %>%
+  filter(Arrest_dt == "Yes") %>%
+  group_by(Treatment_Status) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+
+```
+
+There seems to be lower treatment success rates and higher incarceration rates in the group getting arrested after admission and during treatment.
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+tedsd_15_16 %>%
+  filter(Dead == "Dead") #6876 dead observations
+
+tedsd_15_16 %>%
+  filter(VET == "Veteran") %>%
+  group_by(Treatment_Status) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+
+tedsd_15_16 %>%
+  filter(VET == "Not_Veteran") %>%
+  group_by(Treatment_Status) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+```
+
+The veteran group seems to have higher treatment success rates too. 
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+tedsd_15_16 %>%
+  filter(ARRESTS == 1 | ARRESTS == 2) %>%
+  filter(Referral_Source == "Individual/Personal") %>%
+  group_by(Treatment_Status) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+
+tedsd_15_16 %>%
+  filter(ARRESTS == 1 | ARRESTS == 2) %>%
+  filter(Referral_Source == "Court/Legal_Institution") %>%
+  group_by(Treatment_Status) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+
+```
+
+There also seems to be just a small difference in the treatment success of someone who seeks treatment by their own decision after being arrested vs. being referred by legal institutions after being arrested.
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+tedsd_15_16 %>%
+  filter(Arrest_dt == "Yes") %>%
+  group_by(Treatment_Status) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+```
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE, eval = FALSE}
+tedsd_15_16 %>%
+  group_by(REGION) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+
+tedsd_15_16 %>%
+  group_by(DIVISION) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n))
+```
+
+
+
+https://wwwdasis.samhsa.gov/dasis2/teds.htm
+https://wwwdasis.samhsa.gov/dasis2/teds_pubs/TEDS/Discharges/TED_D_2015/teds_d_2015_codebook.pdf
+https://wwwdasis.samhsa.gov/dasis2/teds_pubs/TEDS/Discharges/TEDS_D_2016/2016_teds_d_codebook.pdf
+
+Substance Abuse and Mental Health Services Administration, Treatment Episode Data Set
+(TEDS): 2015. Rockville, MD: Substance Abuse and Mental Health Services Administration,
+2018. 
+Substance Abuse and Mental Health Services Administration, Treatment Episode Data Set
+(TEDS): 2016. Rockville, MD: Substance Abuse and Mental Health Services Administration,
+2018. 

@@ -1,0 +1,338 @@
+---
+title: "Modeling"
+author: "Peter Li"
+date: "5/26/2019"
+output: html_document
+---
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+library(ggstance)
+library(modelr)
+library(janitor)
+library(tidyverse)
+library(dplyr)
+library(tree)
+library(randomForest)
+library(xgboost)
+library(glmnet)
+library(onehot)
+
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+#saveRDS(tedsd_15_16, "teds_full_15_16v2.rds")
+tedsd_15_16 <- read_rds("teds_full_15_16v2.rds")
+
+#teds0 <- tedsd_15_16 %>% 
+  # select(-RACE, -Race, -Marriage, -STFIPS, -DIVISION, -REASON, -LOS, -YEAR) %>% 
+  # filter(Dead == "Alive") %>% 
+  # filter_all(any_vars(. != -9)) %>%
+  # filter_all(any_vars(. != "NA")) %>%
+  # filter(EDUC != -9 & LIVARAG != "NA" & EMPLOY != "NA" & VET != "NA" & LIVARAG)
+
+#train-test set split
+
+teds_validation0 <- tibble(train = tedsd_15_16 %>% sample_frac(0.60) %>% list(),
+                           test  = tedsd_15_16 %>% setdiff(train) %>% list())
+
+teds_10fold <- tedsd_15_16 %>% 
+  crossv_kfold(10, id = "fold")
+
+```
+
+Some variables that seem appropriate for this dataset include predicting the type of treatment, treatment duration, and treatment results from factors such as patient demographics and the types and amounts of substance(s) abused.
+
+The main response variables are the treatment results at discharge such as whether the treatment is completed or not and any reduction in an individual's substance use. It may also be possible to predict the stay duration or the specific treatment services given to an individual, however, these variables seem to be too variable to case-by-case bases to be able to be predicted accurately. The primary potential predictors are factors such as previous admission, current drug use (type(s) and frequency/amount), referral source, past psychiatric and criminal history, financial background (housing, employment).
+
+Analyzing the data further, there seems to be a positive association between the number of opioid substance types a client is abusing and whether or not methadone therapy is given. Some states may also have specific policies regarding methadone prescriptions. 
+```{r}
+mod_methadone_therapy <- function(df){
+  glm(Opioid_Therapy ~ . -CASEID -Opioid_Therapy -LIVARAG_D -ARRESTS_D 
+      -SERVICES_D -Primary_Substance_D -Primary_Sub_Frequency_D -Secondary_Substance_D
+      -FREQ_ATND_SELF_HELP_D -Stay_Duration -Treatment_Status -Treatment_Completed -Dead
+      -Arrest_dt,
+      data = df, family = binomial)
+}
+
+error_rate_glm <- function(data, model){
+  data %>% 
+    as_tibble() %>%
+    mutate(pred_prob = predict(model, newdata = data, type = "response"),
+           pred = if_else(pred_prob > 0.5, 1, 0),
+           error = pred != Opioid_Therapy) %>% 
+    pull(error) %>% 
+    mean()
+}
+
+opioid_therapy_mod1 <- mod_methadone_therapy(teds_validation %>% 
+                                               unnest(train) %>%
+                                               filter(Dead == "Alive") %>%
+                                               filter_all(all_vars(. != -9)) %>%
+                                               filter_all(all_vars(. != 'NA')) %>%
+                                               na.omit()) 
+
+
+teds0_10fold %>% 
+   mutate(model_fit = map(train,~mod_methadone_therapy(.x)),
+          test_error = map2_dbl(test, model_fit, error_rate_glm),
+          avg_error = mean(test_error))
+```
+
+
+Predicting whether someone completes or does not complete treatment based on the substance he or she is abusing may not be very accurate.
+
+It may be possible to predict stay durations of observations based on their referral source.
+It may be possible to predict an observation's stay duration based on the primary substanced abused.
+
+```{r}
+set.seed(667)
+teds1 <- tedsd_15_16 %>% #1,210,009 observations
+  select(-CASEID, -Opioid_Therapy, -LIVARAG_D, -ARRESTS_D,
+      -SERVICES_D, -Primary_Substance_D, 
+      -Secondary_Substance_D, -FREQ_ATND_SELF_HELP_D, -LOS,
+      -Treatment_Status, -REASON, -Dead, -Arrest_dt) %>%
+  #need to keep Stay_Duration, Services, and Treatment_Completed for target variables
+  #also will keep Primary_Sub_Frequency_D
+  select(-REGION, -DIVISION, -RACE, -AGE, -Legal_Records, -YEAR) %>%
+#RACE is redundant for new variable Race and so is AGE for Age
+  filter_all(all_vars(. != -9)) %>%
+  filter_all(all_vars(. != 'NA')) %>%
+  sample_frac(0.25) #due to limitation computational resources only model 25% of dataset (302,502 observations)
+
+saveRDS(teds1, "teds_partial.rds")
+
+teds_validation <- tibble(train = teds1 %>% sample_frac(0.60) %>% list(),
+                           test  = teds1 %>% setdiff(train) %>% list())
+
+saveRDS(teds_validation, "teds_partial_split.rds")
+
+teds1_10fold <- teds1 %>% 
+  crossv_kfold(10, id = "fold")
+```
+
+```{r}
+set.seed(667)
+sd_y1 <- teds_validation %>% unnest(train) %>% pull(Stay_Duration)
+sd_x1 <- teds_validation %>% unnest(train) %>% 
+  dplyr::select(-Primary_Sub_Frequency_D, -Stay_Duration, -Treatment_Completed) %>% 
+  data.matrix()
+
+sd_x1_test <- teds_validation %>% unnest(test) %>% 
+  dplyr::select(-Primary_Sub_Frequency_D, -Stay_Duration, -Treatment_Completed) %>% 
+  data.matrix()
+
+stay_duration_model1 <- function(df){
+  glmnet(Stay_Duration ~ . -Primary_Sub_Frequency_D -Stay_Duration -Treatment_Completed,
+      data = df, family = "multinomial")
+}
+
+error_rate_glm_sd1 <- function(data, model){
+  data %>% 
+    as_tibble() %>%
+    mutate(pred_prob = predict(model, newdata = data, type = "response"),
+           pred = if_else(pred_prob > 0.5, 1, 0),
+           error = pred != Stay_Duration) %>% 
+    pull(error) %>% 
+    mean()
+}
+
+error_rate_glm_sd <- function(pred){
+    teds_validation %>% unnest(test) %>%
+    mutate(error = pred != Stay_Duration) %>% 
+    pull(error) %>%
+    mean()
+}
+
+stay_duration_cv1 <- cv.glmnet(sd_x1, sd_y1, type.measure="class", nfolds=10, 
+                               family="multinomial", alpha = 1)
+
+saveRDS(stay_duration_cv1, "stay_duration_lasso_log_cv1.rds")
+stay_duration_cv1 <- readRDS("stay_duration_lasso_log_cv1.rds")
+coef(stay_duration_cv1)
+
+stay_duration_cv1_pred <- predict(stay_duration_cv1, newx = sd_x1_test, type="class", s = stay_duration_cv1$lambda.1se) 
+error_rate_glm_sd(stay_duration_cv1_pred) #0.7749998 error rate
+
+stay_duration_model1_cv1 <- teds1_10fold %>% 
+   mutate(model_fit = map(train,~stay_duration_model1(.x)),
+          test_error = map2_dbl(test, model_fit, error_rate_glm_sd1),
+          avg_error = mean(test_error))
+```
+
+```{r}
+set.seed(667)
+stay_duration_cv0 <- cv.glmnet(sd_x1, sd_y1, type.measure="class", nfolds=10, 
+                               family="multinomial", alpha = 0)
+
+saveRDS(stay_duration_cv0, "stay_duration_ridge_log_cv0.rds")
+
+stay_duration_cv0_pred <- predict(stay_duration_cv0, newx = sd_x1_test, type="class", s = 
+                                    stay_duration_cv0$lambda.1se) 
+error_rate_glm_sd(stay_duration_cv0_pred) #0.7767307 error rate
+
+
+error_rate_glm_tc <- function(pred){
+    teds_validation %>% unnest(test) %>%
+    mutate(error = pred != Treatment_Completed) %>% 
+    pull(error) %>%
+    mean()
+}
+
+tc_y1 <- teds_validation %>% unnest(train) %>% pull(Treatment_Completed)
+tc_x1 <- teds_validation %>% unnest(train) %>% 
+  dplyr::select(-Treatment_Completed, -Primary_Sub_Frequency_D) %>% 
+  data.matrix()
+
+tc_x1_test <- teds_validation %>% unnest(test) %>% 
+  dplyr::select(-Treatment_Completed, -Primary_Sub_Frequency_D) %>% 
+  data.matrix()
+
+treatment_completed_cv0 <- cv.glmnet(tc_x1, tc_y1, type.measure="class", nfolds=10, 
+                               family="multinomial", alpha = 1)
+
+saveRDS(treatment_completed_cv0, "treatment_completed_ridge_log_cv0.rds")
+
+treatment_completed_cv0_pred <- predict(treatment_completed_cv0, newx = tc_x1_test, 
+                                        type="class", s = treatment_completed_cv0$lambda.1se) error_rate_glm_tc(treatment_completed_cv0_pred) #0.4923552 error rate
+
+treatment_completed_cv1 <- cv.glmnet(tc_x1, tc_y1, type.measure="class", nfolds=10, 
+                               family="multinomial", alpha = 1)
+saveRDS(treatment_completed_cv1, "treatment_completed_lasso_log_cv1.rds")
+
+coef(readRDS( "treatment_completed_lasso_log_cv1.rds"))
+
+
+treatment_completed_cv1_pred <- predict(treatment_completed_cv1, newx = tc_x1_test, 
+                                        type="class", s = treatment_completed_cv1$lambda.1se) error_rate_glm_tc(treatment_completed_cv1_pred) #0.4922328 error rate
+
+```
+
+Random Forest CV:
+```{r}
+set.seed(667)
+
+teds1_mini <- tedsd_15_16 %>% #1,210,009 observations
+  select(-CASEID, -Opioid_Therapy, -LIVARAG_D, -ARRESTS_D,
+      -SERVICES_D, -Primary_Substance_D, 
+      -Secondary_Substance_D, -FREQ_ATND_SELF_HELP_D, -LOS,
+      -Treatment_Status, -REASON, -Dead, -Arrest_dt) %>%
+  #need to keep Stay_Duration, Services, and Treatment_Completed for target variables
+  #also will keep Primary_Sub_Frequency_D
+  select(-REGION, -DIVISION, -RACE, -AGE, -Legal_Records, -YEAR) %>%
+#RACE is redundant for new variable Race and so is AGE for Age
+  filter_all(all_vars(. != -9)) %>%
+  filter_all(all_vars(. != 'NA')) %>%
+  sample_frac(0.05)
+
+teds_validation_mini <- tibble(train = teds1_mini %>% sample_frac(0.60) %>% list(),
+                           test  = teds1_mini %>% setdiff(train) %>% list())
+
+teds_train_mini <- cbind((teds_validation_mini %>% unnest(train) 
+                      %>% as.data.frame(stringsAsFactors = TRUE))[,-c(29, 32, 33)])
+tc_rfcv1_mini <- rfcv(teds_train_mini, factor((teds_validation_mini  %>% unnest(train) %>% 
+                           as.data.frame(stringsAsFactors = TRUE))[33] %>% 
+       as.matrix()), cv.fold = 10) #column 33 = Treatment_Completed
+
+saveRDS(tc_rfcv1_mini, "treatment_completed_rfcv1_mini.rds") #~121 observations
+readRDS("treatment_completed_rfcv1_mini.rds")
+
+sd_rfcv1_mini <- rfcv(teds_train_mini, factor((teds_validation_mini  %>% unnest(train) %>% 
+                           as.data.frame(stringsAsFactors = TRUE))[32] %>% 
+       as.matrix()), cv.fold = 10) #column 33 = Treatment_Completed
+
+saveRDS(sd_rfcv1_mini, "stay_duration_rfcv1_mini.rds") #~121 observations
+
+
+teds_train_ <- cbind((teds_validation %>% unnest(train) 
+                      %>% as.data.frame(stringsAsFactors = TRUE))[,-c(29, 32, 33)])
+tc_rfcv1 <- rfcv(teds_train_, factor((teds_validation  %>% unnest(train) %>% 
+                           as.data.frame(stringsAsFactors = TRUE))[33] %>% 
+       as.matrix()), cv.fold = 10) #column 33 = Treatment_Completed
+
+saveRDS(tc_rfcv1, "treatment_completed_rfcv1.rds")
+
+sd_rfcv1 <- rfcv(teds_train_, factor((teds_validation  %>% unnest(train) %>% 
+                           as.data.frame(stringsAsFactors = TRUE))[32] %>% 
+       as.matrix()), cv.fold = 10) #column 32 = Stay Duration
+
+saveRDS(sd_rfcv1, "stay_duration_rfcv1.rds")
+
+
+#class((teds_validation  %>% unnest(train) %>% as.data.frame())[33] )
+
+
+
+```
+
+Boosting:
+
+```{r}
+set.seed(667)
+xgb_matrix<- function(dat){
+  dat = dat %>% as_tibble()
+  mat = teds1_mini %>% dplyr::select(-wlf) %>% # encode on full boston df
+    onehot::onehot() %>% # use onehot to encode variables
+    predict(dat) # get OHE matrix
+  
+  return(xgb.DMatrix(data = mat, 
+                     label = dat$wlf))
+  
+}
+
+xg_error <- function(model, test){
+  
+  pred_prob = predict(model, test)
+  preds = if_else(pred_prob > 0.5, "1", "0")
+  vals = getinfo(test, "label")
+  
+  return(mean((preds != vals)))
+  #return(preds)
+}
+
+teds_vm_10fold <- teds_validation_mini %>% unnest(train)  %>% 
+  crossv_kfold(10, id = "fold")
+
+teds_vm_10fold <- teds_vm_10fold %>%
+                  mutate(train_dg = map(train, xgb_matrix), 
+                         test_dg = map(test, xgb_matrix)) %>%
+                  dplyr::select(train_dg, test_dg)
+
+teds_vm_10fold <- teds_vm_10fold %>%
+  crossing(tibble(learning_rate = c(0.001, 0.01, 0.05, 0.1, 0.2)), tibble(depth = 2:12))
+
+teds_vm_10fold <- teds_vm_10fold %>%
+   mutate(model_fit = map2(train_dg, learning_rate, 
+                                 fit_xg_wf, depth, nrounds = 100), 
+         test_error = map2_dbl(model_fit, test_dg, xg_error))
+
+teds_vm_10fold %>%
+  dplyr::select(learning_rate, depth, test_error) %>%
+  group_by(learning_rate, depth) %>%
+  summarize(test_error = mean(test_error)) %>%
+  arrange(test_error)
+
+param <- list("objective" = "multi:softprob",
+              "eta" = 0.001,
+              "eval_metric" = "mlogloss",
+              "num_class" = 12)
+
+
+xgb.cv(param = param,
+                   data = xgb_matrix(teds_validation_mini 
+                                     %>% unnest(train)),
+                   nrounds = 100,
+                   early_stopping_rounds = 10,
+                   nfold = 10,
+                   prediction = TRUE,
+                   eval_metric = "merror") 
+```
+
+
+
+Stay durations greatly vary on a individual case-by-case basis so it is unlikely that it is a strong predictor of treatment success.
+
+It seems possible to predict an observation's treatment type based on the primary substance abused.
+
+Also consider predicting LOS/treatment completed/primary sub frequency at discharge with services at admission to test treatment efficiacy.
+
+

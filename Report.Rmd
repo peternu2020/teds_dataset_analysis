@@ -1,0 +1,82 @@
+---
+title: "TEDS Report"
+author: "Peter Li"
+date: "6/2/2019"
+output:
+  pdf_document: default
+  html_document: default
+---
+https://peternu2020.github.io/datascience3/
+
+The Treatment Episode Data Set (TEDS) consists of approximately 2.9 million substance abuse treatment records. The dataset is collected and administered by the Center for Behavioral Health Statistics and Quality, Substance Abuse and Mental Health Services Administration (SAMHSA) and also consists of data collected by states in the United States. The dataset consists of both treatment admissions and discharge records collected from 2015-2016. 
+
+The primary goal was to develop models to predict treatment completion, length of stay, and substance use frequency at treament discharge from the demographics of individuals and other factors such as the type of substance abuse and frequency of use before treatment, history of previous treatment, etc. Another constraint was that the models developed had to be fairly intrepretable. This constraint was self-imposed and arbitrary, but it allows for specific predictor variables to be identified and further evaluated. However, this constraint limits the use of black-box methods such as neural networks that may fit more accurate models at the cost of intrepretability.
+
+My exploratory data analysis focused on finding initital patterns between the variables in the dataset. There were already quick statistics and some preliminary analysis available for the dataset in the TEDS codebooks. Those helped provide a superficial overview of the data. For example, one can learn that the majority race for the observations is Caucasian from a glance at the codebook. The codebook also notes that for 2015 the states of Oregon, South Carolina, West Virginia and for 2016 the states of Georgia, Oregon, West Virginia were excluded due to reporting insufficient data. However, these quick summary statistics did not identify any response variables in the dataset that could be modeled by other variables as predictors. The original dataset did not have any labeled response variables or any specific variables that were emphasized over the others. Some variables that seemed appropriate for this dataset include predicting the type of treatment, treatment duration, and treatment results from factors such as patient demographics and the types and amounts of substance(s) abused. Therefore, my exploratory data analysis examined the data more closely with the goal of finding and intrepreting patterns among the wide range of variables in the dataset. The original dataset consisted of 78 variables, however, variables generally containing 25% or more missing or "NA" values were excluded from further analysis. Through the data cleaning process, I also modified existing variables or created new variables to correct for untidy or unclear data. 
+
+With the widespread opioid epidemic in the recent years, I expected opioids to have the most cases of substance abuse in the dataset. However, opioids was surprisingly only the second most widely abused substance in the dataset and narrowly lost first place to alcohol. My EDA also found that the majority of alcohol abuse treatment cases were for minors. This is obviously not surprising, but it is a fact that would not have been discovered without diving beyond the summary statistics of the codebooks. 
+
+The main response variables I chose to focus on were: the treatment results at discharge such as whether the treatment is completed or not and any reduction in an individual's substance use at treatment discharge. I also tried predictive models for the treatment stay duration, however, stay duration times also seemed to be too variable on a case-by-case basis to be able to be predicted accurately. The treatment type variable did not seem like an appropriate variable to be predicted as treatment is assumed to be decided by a medical professional after a thorough diagnosis. Furthrmore, some of the predictor variables and information provided in the dataset are not guaranteed to be accurate or reliable.
+
+The primary potential predictors are factors such as previous admission, current drug use (type(s) and frequency/amount), referral source, past psychiatric and criminal history, financial background (housing, employment). The age and gender variables were also included as predictors, but the distributions in the sample are skewed. Individual's involment with self-help groups also was speculated to be an indicator of the treatment success/duration. However, as previously mentioned, some of these predictors are most likely self-reported by each individual so their accuracy should not be free of scrutiny. 
+
+Other conclusions of the EDA were: predicting whether someone completes or does not complete treatment based on the substance he or she is abusing may not be very accurate. It may be possible to predict stay durations of observations based on their referral source. It may also be possible to predict an observation's stay duration based on the primary substanced abused. Stay durations greatly varied on a individual case-by-case basis so it is unlikely that it is a strong predictor of treatment completion.
+
+Analyzing the data further, there also seemed to be a positive association between the number of opioid substance types a client is abusing and whether or not methadone therapy is given. Some states may have specific policies regarding methadone prescriptions. However, predicting treatment type was not a primary objective of my analysis and models.
+
+The original dataset consisted of approximately 2.9 million observations. After removing observations with NA values, there were approximately 1.2 million observations left. Given the significantly large size of the dataset and the computational resources needed to model 1.2 million observations, I sampled a tenth of the dataset for fitting models on. Removing some extraneous and redundant variables, the dataset of approximately 121,000 observations was left with 33 predictor variables and 3 dependent variables. Thus, an initial caveat is that my models were not fitted and tested on the entire dataset. However, this does not mean that the results of the models fitted on the reduced dataset are insignificant. The results may help guide further modeling on the entire dataset and it may be likely that any models trained on the entire dataset do not differ much than those that have been trained.
+
+All of my modeling methods used a training set for fitting and a test set for assessment of model accuracy. Furthermore, each model had parameters optimized through 10-fold cross validation on the training set with selection based on the lowest train error (missclassification) rate. All of the dependent variables being predicted were multi-class and not binary, thus, methods such as SVMs and binary logistic regression were not used.
+
+The first methods I used for predictive modeling were lasso and ridge logistic regression. Penalized regression is arguably a standard basis for classification models, although it is expected that other more sophisicated methods may have better accuracy. For each dependent variable, both lasso and ridge logistic regression models had almost identical test error rates. Lasso regression provides feature selection where ridge regression does not. However, the coefficients for predictors also significantly varied from each class of the dependent variables. For example, significant predictors for predicting successful treatment completion include: the type of treatment service(s) administered, the type of substance(s) abused, and history of psychological problem(s). However, most of these predictors are excluded and have zero or significantly reduced weight when predicting failed treatment completion. Thus, penalized regression with multiclass dependent variables primarily provides a baseline for comparing further models and the included feature selection is not very useful for excluding predictors in further models.
+
+The next methods used were ensemble tree methods. Decision trees provide highly intrepretable models, but the standard classification tree in R does not handle more than 32 levels in the predictor variables. Individual classification trees are also less robust to bias and variance than ensemble methods.
+
+Random forests were used with the CV tuned number of randomly sampled features at each split. All of these numbers were less than the total number of predictors, thus, bootstrap aggregation was excluded. 
+
+All boosting models used the CV tuned parameters of a 0.200 learning rate, depth of 2, and rounds of 100. It was surprising that the boosting models were outperformed by random forests, however, it is not unexpected as boosting models tend to have lower variance at the cost of high bias in comparison to the low bias and high variance nature of random forests. Overall, random forests outperformed the other two modeling methods for all three dependent variables being predicted.
+
+Predicting stay duration:
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+library(tidyverse)
+model <- c("random_forest, mtry = 4","boosting", "lasso/ridge logistic regression")
+test_error_rate <- c(0.69, 0.7247294, 0.7749998)
+table <- tibble(model, test_error_rate)
+table %>% arrange(desc(test_error_rate))
+```
+
+Predicting treatment completion:
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+model <- c("random_forest, mtry = 8","boosting", "lasso/ridge logistic regression")
+test_error_rate <- c(0.41, 0.4723446, 0.4922328)
+table <- tibble(model, test_error_rate)
+table %>% arrange(desc(test_error_rate))
+```
+
+Predicting primary substance usage frequency at treatment discharge:
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+model <- c("random_forest, mtry = 8", "boosting", "lasso/ridge logistic regression")
+test_error_rate <- c(0.2207883, 0.2909484, 0.3526074)
+table <- tibble(model, test_error_rate)
+table %>% arrange(desc(test_error_rate))
+```
+
+There were 12 possible classes for stay duration, ranging from three or less days to over a year. The other two dependent variables, treatment completion and primary substance usage frequency at discharge, had four and three possible classes, respectively. Therefore, it is not surprising that predicting stay duration was difficult across all modeling methods. Further aggregating the possible classes could be a method to increase model accuracy, however, it is possible that aggregation can lead to information loss. The results with predicting stay duration agree with my initial assessment during my EDA. It is expected that stay durations greatly vary by individual and would be significantly difficult to accurately predict.
+
+The models for predicting the treatment completion variable did not have any accuarcy rates significantly above 0.50. This was more surprising due to the low number of possible classes the variable had. The classes were: "Completed", "Failure", "Ongoing", and "Other". Individuals who completed treatment were labeled "Completed", while individuals who rejected or had treatment discontinued due to non-compliance were labeled "Failure". Individuals who still were ongoing treatment were labeled "Ongoing", and individuals who were incaracerated or died during treatment were labeled "Other". These labels were aggregated from the original dataset during data cleaning. As stated previously, aggregation results in less possible classes to predict but can also result in information loss. It is possible to further aggregate these classes into a binary set such as combining "Ongoing" observations with "Completed" observations and "Other" observations with "Failure" observations. This could allow for the use of binary classifiers, but there is no guarantee that those would work better than the multiclass classifiers used. It is highly likely that treament completion is too variable and dependent on individual case-by-case bases so that it cannot be accurately predicted, in a similar fashion to the stay duration variable. 
+
+The dependent variable with the lowest test error rates across all three methods was the primary substance usage frequency at treatment discharge. This variable had the least amount of possible classes out of all the dependent variables. The possible classes were: "Daily", "Some", and "None". The variable arguably provides as much information, if not more, on treatment efficiency as the treatment completion variable. A treatment being completed also does not guarantee an individual has reduced or stopped using substance(s). However, a caveat is that if there is no difference between the individual's primary substance use frequency before and after the treatment then the treatment efficiency should not be considered significant. 
+
+Given the complexity of determing feature selection and the importance of predictors for each possible dependent variable class, it may be worthwhile to forgo the self-imposed intrepretability requirement in favor of potentially more accurate modeling methods such as neural networks. Using the entire dataset in conjunction with neural networks may yield positive results. 
+
+https://wwwdasis.samhsa.gov/dasis2/teds.htm
+https://wwwdasis.samhsa.gov/dasis2/teds_pubs/TEDS/Discharges/TED_D_2015/teds_d_2015_codebook.pdf
+https://wwwdasis.samhsa.gov/dasis2/teds_pubs/TEDS/Discharges/TEDS_D_2016/2016_teds_d_codebook.pdf
+
+Substance Abuse and Mental Health Services Administration, Treatment Episode Data Set
+(TEDS): 2015. Rockville, MD: Substance Abuse and Mental Health Services Administration,
+2018. 
+Substance Abuse and Mental Health Services Administration, Treatment Episode Data Set
+(TEDS): 2016. Rockville, MD: Substance Abuse and Mental Health Services Administration,
+2018. 
+
